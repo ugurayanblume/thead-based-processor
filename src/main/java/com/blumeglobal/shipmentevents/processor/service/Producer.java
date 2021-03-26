@@ -11,9 +11,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class Producer {
@@ -37,7 +40,7 @@ public class Producer {
         LOGGER.info("Time difference is :" + ( end.toEpochMilli() - start.toEpochMilli() )/1000.0 + " secs for " + rows + " records");
     }
 
-    public void createMultiThreadRandomRecords(Long rows, Long size, Integer threads){
+    public void createMultiThreadRandomRecords(Long rows, Long size, Integer threads, Boolean isBulSave) throws InterruptedException {
 
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(threads);
 
@@ -47,12 +50,36 @@ public class Producer {
 
         for (Long i = 0L; i < rows; i += size) {
             final Long r = i;
-            executor.submit(() -> saveData(r, r + size));
+            if (isBulSave) {
+                executor.execute(() -> saveData(r, r + size));
+            } else {
+                executor.execute(() -> saveBulkData(r, r + size));
+            }
+
         }
+
+        executor.shutdown();
+        executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
 
         Instant end = Instant.now();
         LOGGER.info("Create Thread Based Random Records Ends " + new Date().toString());
         LOGGER.info("Time difference is :" + ( end.toEpochMilli() - start.toEpochMilli() )/1000.0 + " secs for " + rows + " records and " + threads + " threads");
+    }
+
+    private void saveBulkData(Long rowStartId, Long rowEndId){
+        List<RawData> rawDataList = new ArrayList<>();
+        for (Long i = rowStartId; i < rowEndId; i++) {
+            rawDataList.add(
+                    RawData.builder()
+                            .id(i)
+                            .data(DataUtils.getData(DataSizeEnum.values()[Integer.parseInt(String.valueOf(i % 3))]))
+                            .createdDate(System.currentTimeMillis())
+                            .createdDateInStr(new Date().toString())
+                            .state(StateEnum.UNPROCESSED)
+                            .build()
+            );
+        }
+        rawDataRepository.saveAll(rawDataList);
     }
 
     private void saveData(Long rowStartId, Long rowEndId){
